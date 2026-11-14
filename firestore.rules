@@ -1,0 +1,52 @@
+rules_version = '2';
+service cloud.firestore {
+ match /databases/{database}/documents {
+  function signedIn(){ return request.auth != null; }
+  function tripPath(t){ return /databases/$(database)/documents/trips/$(t); }
+  function member(t){ return signedIn() && exists(tripPath(t)) && get(tripPath(t)).data.members is list && get(tripPath(t)).data.members.hasAny([request.auth.uid]); }
+  function owner(t){ return signedIn() && exists(tripPath(t)) && get(tripPath(t)).data.ownerId == request.auth.uid; }
+  match /trips/{tripId} {
+   allow create: if signedIn()
+    && request.resource.data.ownerId == request.auth.uid
+    && request.resource.data.members == [request.auth.uid]
+    && request.resource.data.keys().hasOnly(['title','ownerId','members','createdAt'])
+    && request.resource.data.title is string && request.resource.data.title.size() <= 100;
+   allow read: if member(tripId);
+   allow update: if owner(tripId)
+    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title','members'])
+    && request.resource.data.ownerId == resource.data.ownerId
+    && request.resource.data.members is list
+    && request.resource.data.members.size() >= 1
+    && request.resource.data.members.size() <= 10
+    && request.resource.data.members.hasAll([resource.data.ownerId])
+    && request.resource.data.title is string && request.resource.data.title.size() <= 100;
+   allow delete: if owner(tripId);
+   match /itinerary/{itemId} {
+    allow read: if member(tripId);
+    allow create, update: if member(tripId)
+     && request.resource.data.keys().hasOnly(['date','time','city','name','type','cost','lat','lng','note','updatedAt'])
+     && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 120
+     && request.resource.data.note is string && request.resource.data.note.size() <= 1500
+     && request.resource.data.cost is number && request.resource.data.cost >= 0 && request.resource.data.cost <= 10000000;
+    allow delete: if member(tripId);
+   }
+   match /saved/{itemId} {
+    allow read: if member(tripId);
+    allow create, update: if member(tripId)
+     && request.resource.data.keys().hasOnly(['name','type','city','address','note','createdAt'])
+     && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 120
+     && request.resource.data.address is string && request.resource.data.address.size() <= 500
+     && request.resource.data.note is string && request.resource.data.note.size() <= 1500;
+    allow delete: if member(tripId);
+   }
+   match /settings/{settingId} {
+    allow read: if member(tripId);
+    allow create, update: if member(tripId) && settingId == 'main'
+     && request.resource.data.keys().hasOnly(['budgetJPY','rate','updatedAt'])
+     && request.resource.data.budgetJPY is number && request.resource.data.budgetJPY >= 0 && request.resource.data.budgetJPY <= 100000000
+     && request.resource.data.rate is number && request.resource.data.rate > 0 && request.resource.data.rate <= 100;
+    allow delete: if member(tripId);
+   }
+  }
+ }
+}
